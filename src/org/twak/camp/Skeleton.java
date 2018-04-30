@@ -268,6 +268,7 @@ public class Skeleton
                     t.getCause().printStackTrace();
                 }
             }
+            if (Thread.currentThread().isInterrupted()) break;
         }
 
         DebugDevice.dump("after main "+String.format("%4d", ++i ), this );
