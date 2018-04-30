@@ -1,6 +1,10 @@
 
 package org.twak.camp;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.SortedMap;
+import java.util.TreeMap;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -194,41 +198,84 @@ public class Skeleton
 
     /**
      * Execute the skeleton algorithm
+     *
+     * Upstream patched to return events trace as a height -> set of edges map.
      */
-    public void skeleton()
+    public Map<Double, Set<List<List<Double>>>> skeleton() {
+        return skeleton(false);
+    }
+
+    public SortedMap<Double, Set<List<List<Double>>>> skeleton(boolean wantsTrace)
     {
         validate();
         HeightEvent he;
 
         int i = 0;
 
+        class Tracer {
+            // We cannot just pass custom order to Set, so we'll store edges
+            // as lists for simplicity.
+            private SortedMap<Double, Set<List<List<Double>>>> trace;
+            public SortedMap<Double, Set<List<List<Double>>>> getTrace() {
+                return trace;
+            }
+            void addEvent(double height, Skeleton skel) {
+                if (trace == null) trace = new TreeMap<>();
+                Set<List<List<Double>>> edgeset = new HashSet();
+                for ( Face face : skel.output.faces.values() )
+                    for ( Point3d p1 : face.results.map.keySet() )
+                        for ( Point3d p2 : face.results.map.get( p1 ) ) {
+                            List<Double> ep1 = Arrays.asList(p1.getX(), p1.getY());
+                            List<Double> ep2 = Arrays.asList(p2.getX(), p2.getY());
+
+                            Comparator<List<Double>> comp = new Comparator<List<Double>>() {
+                                @Override
+                                public int compare(List<Double> x, List<Double> y) {
+                                    if (x.get(0) < y.get(0)) return -1;
+                                    if (x.get(0) > y.get(0)) return 1;
+                                    if (x.get(1) < y.get(1)) return -1;
+                                    if (x.get(1) > y.get(1)) return 1;
+                                    return 0;
+                                }
+                            };
+                            List<List<Double>> edge = Arrays.asList(ep1, ep2);
+                            Collections.sort(edge, comp);
+
+                            edgeset.add(edge);
+                        }
+                trace.put(height, edgeset);
+            }
+        }
+        Tracer tracer = new Tracer();
+
         DebugDevice.dump("main "+String.format("%4d", ++i ), this );
-        while ( ( he = qu.poll() ) != null )
-            try
-            {
-                if ( he.process( this ) ) // business happens here
+        if (wantsTrace) tracer.addEvent(0, this);
+        while ( ( he = qu.poll() ) != null ) {
+            try {
+                if (he.process(this)) // business happens here
                 {
                     height = he.getHeight();
-                    DebugDevice.dump("main "+height+" "+String.format("%4d", ++i ), this );
+                    DebugDevice.dump("main " + height + " " + String.format("%4d", ++i), this);
+                    if (wantsTrace) tracer.addEvent(height, this);
                     validate();
                 }
-                
+
                 refindFaceEventsIfNeeded();
-            }
-            catch ( Throwable t )
-            {
+            } catch (Throwable t) {
                 t.printStackTrace();
-                if (t.getCause() != null)
-                {
+                if (t.getCause() != null) {
                     System.out.println("  caused by:");
                     t.getCause().printStackTrace();
                 }
             }
+        }
 
         DebugDevice.dump("after main "+String.format("%4d", ++i ), this );
 
         // build output polygons from constructed graph
         output.calculate( this );
+
+        return tracer.getTrace();
     }
 
     /**
